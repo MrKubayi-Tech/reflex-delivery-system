@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Fikisha design tokens.
+ * One accent (amber) reserved for decision points / calls to action.
+ * No gradients anywhere in this system — flat fills, 1px hairlines.
+ */
+:root {
+  --ink: #1a1a17;
+  --forest: #0e3b2c;
+  --forest-deep: #0a2c21;
+  --cream: #f5f2ea;
+  --sage: #b9cbbc;
+  --amber: #c68a2e;
+  --rust: #b23a2e;
+  --hairline: rgba(14, 59, 44, 0.12);
+}
+
+body {
+  background: var(--cream);
+}
+
+.hairline {
+  border-color: var(--hairline);
+}
