@@ -1,16 +1,9 @@
-<!DOCTYPE html>
-<!--
-Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
-Click nbfs://nbhost/SystemFileSystem/Templates/Project/PHP/PHPProject.php to edit this template
--->
-<html>
-    <head>
-        <meta charset="UTF-8">
-        <title></title>
-    </head>
-    <body>
-        <?php
-        // put your code here
-        ?>
-    </body>
-</html>
+<?php
+
+require_once __DIR__ . DIRECTORY_SEPARATOR .'..'. DIRECTORY_SEPARATOR .'bootstrap'. DIRECTORY_SEPARATOR . 'bootstrap.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR .'..'. DIRECTORY_SEPARATOR .'config'. DIRECTORY_SEPARATOR . 'config.php';
+
+$router = new Router(ROUTE_PATH, FORM_PATH, AUTH_PATH);
+$router->getURL();
+$router->getRoute();
+
