@@ -1,23 +1,38 @@
-import { useState, type FormEvent } from 'react';
+import React, { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { 
+  User, 
+  Smartphone, 
+  Lock, 
+  Building2, 
+  MapPin, 
+  Truck, 
+  ArrowRight,
+  CheckCircle2,
+  AlertCircle
+} from 'lucide-react';
+
 import type { Role, VehicleType } from '../types';
 import { register, ApiError } from '../lib/api';
 import { saveSession } from '../lib/auth';
-import { Button } from '../components/Button';
-import { Card } from '../components/Card';
 
-const ROLE_COPY: Record<Role, { title: string; blurb: string }> = {
+// --- Visual & Copy Data ---
+
+const ROLE_INFO: Record<Role, { title: string; blurb: string; icon: any }> = {
   retailer: {
-    title: 'Retailer staff',
-    blurb: "You'll register your business and log delivery requests for it.",
+    title: 'Business Retailer',
+    blurb: "Register your shop to manage and track outward deliveries to your customers.",
+    icon: Building2
   },
   dispatcher: {
-    title: 'Dispatcher',
-    blurb: "You'll see open requests across retailers and assign them to riders.",
+    title: 'Logistics Dispatcher',
+    blurb: "Oversee the fleet, monitor unassigned requests, and manage rider assignments.",
+    icon: CheckCircle2
   },
   rider: {
-    title: 'Rider',
-    blurb: "You'll see deliveries assigned to you and update their status from the field.",
+    title: 'Delivery Rider',
+    blurb: "Access your assigned tasks, navigate to destinations, and update delivery status.",
+    icon: Truck
   },
 };
 
@@ -59,7 +74,7 @@ export function Register() {
       if (err instanceof ApiError && err.fieldErrors) {
         setErrors(err.fieldErrors);
       } else {
-        setErrors({ _general: err instanceof Error ? err.message : 'Something went wrong. Please try again.' });
+        setErrors({ _general: err instanceof Error ? err.message : 'Registration failed. Please try again.' });
       }
     } finally {
       setSubmitting(false);
@@ -67,146 +82,255 @@ export function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-forest flex items-center justify-center px-6 py-10">
-      <Card className="w-full max-w-md p-8 border-none">
-        <div className="font-display text-3xl font-semibold text-forest mb-1">
-          Fikisha<span className="text-amber italic font-medium">.</span>
-        </div>
-        <p className="text-sm text-ink/50 mb-6">Create an account.</p>
-
-        <div className="mb-6">
-          <label
-            htmlFor="role"
-            className="block text-xs font-semibold uppercase tracking-wide text-ink/50 mb-1.5"
-          >
-            I am a
-          </label>
-          <select
-            id="role"
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            className="w-full border border-ink/15 px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-forest"
-          >
-            {ROLE_ORDER.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_COPY[r].title}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-ink/50 mt-1.5">{ROLE_COPY[role].blurb}</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Field label="Full name" value={fullName} onChange={setFullName} error={errors.full_name} />
-          <Field
-            label="Phone number"
-            value={phone}
-            onChange={setPhone}
-            error={errors.phone_number}
-            placeholder="+254700000000"
-            type="tel"
-          />
-
-          {role === 'retailer' && (
-            <>
-              <Field
-                label="Business name"
-                value={businessName}
-                onChange={setBusinessName}
-                error={errors.business_name}
-                placeholder="e.g. Jumia Hardware — Industrial Area"
-              />
-              <Field
-                label="Business address"
-                value={businessAddress}
-                onChange={setBusinessAddress}
-                error={errors.business_address}
-                placeholder="Also used as your pickup location for deliveries"
-              />
-            </>
-          )}
-
-          {role === 'rider' && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-ink/50 mb-1.5">
-                Vehicle type <span className="normal-case text-ink/30">(optional)</span>
-              </label>
-              <select
-                value={vehicleType}
-                onChange={(e) => setVehicleType(e.target.value as VehicleType | '')}
-                className="w-full border border-ink/15 px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-forest"
-              >
-                <option value="">Not specified</option>
-                <option value="motorbike">Motorbike</option>
-                <option value="light_truck">Light truck</option>
-                <option value="heavy_van">Heavy van</option>
-              </select>
+    <div className="min-h-screen bg-[#F8F9FB] flex flex-col md:flex-row font-sans">
+      
+      {/* Branding & Role Explainer Side */}
+      <div className="hidden lg:flex lg:w-[40%] bg-[#0047BB] p-16 flex-col justify-between text-white shrink-0">
+        <div>
+          <div className="flex items-center gap-3 mb-12">
+            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+              <span className="text-[#0047BB] font-black italic text-xl">R</span>
             </div>
-          )}
+            <h1 className="text-2xl font-black tracking-tight">Reflex</h1>
+          </div>
 
-          <Field
-            label="Password"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            error={errors.password}
-            placeholder="At least 8 characters"
-          />
-          <Field
-            label="Confirm password"
-            type="password"
-            value={passwordConfirmation}
-            onChange={setPasswordConfirmation}
-            error={errors.password_confirmation}
-          />
+          <h2 className="text-4xl font-black leading-tight mb-8">
+            Join the network.
+          </h2>
+          
+          <div className="space-y-4">
+            {ROLE_ORDER.map((r) => {
+              const Icon = ROLE_INFO[r].icon;
+              const isActive = role === r;
+              return (
+                <div
+                  key={r}
+                  className={`p-6 rounded-2xl border transition-all cursor-default ${
+                    isActive 
+                      ? 'bg-white/10 border-white/20 shadow-xl shadow-black/10' 
+                      : 'border-white/5 opacity-40 grayscale'
+                  }`}
+                >
+                  <div className="flex items-center gap-4 mb-2">
+                    <div className={`p-2 rounded-lg ${isActive ? 'bg-white text-[#0047BB]' : 'bg-white/10'}`}>
+                      <Icon size={18} />
+                    </div>
+                    <span className="font-black text-sm uppercase tracking-wider">{ROLE_INFO[r].title}</span>
+                  </div>
+                  <p className="text-xs text-white/60 leading-relaxed font-medium">
+                    {ROLE_INFO[r].blurb}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
-          {errors._general && <p className="text-sm text-rust">{errors._general}</p>}
-
-          <Button type="submit" disabled={submitting} className="w-full">
-            {submitting ? 'Creating account…' : 'Create account'}
-          </Button>
-        </form>
-
-        <p className="mt-6 text-sm text-ink/50">
-          Already have an account?{' '}
-          <Link to="/login" className="text-forest font-medium hover:underline">
-            Sign in
-          </Link>
+        <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/30">
+          Reflex Logistics Engine &copy; 2024
         </p>
-      </Card>
+      </div>
+
+      {/* Form Side */}
+      <div className="flex-1 bg-white overflow-y-auto">
+        <div className="max-w-xl mx-auto p-8 md:p-16">
+          
+          <div className="lg:hidden flex items-center gap-2 mb-12">
+            <div className="w-8 h-8 bg-[#0047BB] rounded flex items-center justify-center">
+              <span className="text-white font-black italic">R</span>
+            </div>
+            <span className="font-black text-xl">Reflex</span>
+          </div>
+
+          <header className="mb-10">
+            <h3 className="text-3xl font-black text-slate-900 mb-2">Create Account</h3>
+            <p className="text-slate-400 text-sm font-medium">Please provide your details to get started.</p>
+          </header>
+
+          <form onSubmit={handleSubmit} className="space-y-8">
+            
+            {/* Step 1: Role Selection (Interactive Segment) */}
+            <div className="space-y-4">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                Registering As
+              </label>
+              <div className="flex p-1.5 bg-slate-50 rounded-xl border border-slate-100">
+                {ROLE_ORDER.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRole(r)}
+                    className={`flex-1 py-3 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-all ${
+                      role === r 
+                        ? 'bg-white shadow-sm text-[#0047BB] ring-1 ring-slate-100' 
+                        : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    {ROLE_LABELS_SHORT[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 2: Personal Details Group */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-50">
+               <div className="md:col-span-2">
+                 <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-6">Personal Information</p>
+               </div>
+               
+               <Field 
+                  label="Full Name" 
+                  icon={User} 
+                  value={fullName} 
+                  onChange={setFullName} 
+                  error={errors.full_name} 
+                  placeholder="e.g. John Doe"
+                  required 
+               />
+
+               <Field 
+                  label="Phone Number" 
+                  icon={Smartphone} 
+                  value={phone} 
+                  onChange={setPhone} 
+                  error={errors.phone_number} 
+                  placeholder="+254 700..."
+                  type="tel"
+                  required 
+               />
+            </div>
+
+            {/* Step 3: Role Specific Details */}
+            {role === 'retailer' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-8 border-t border-slate-50 animate-in fade-in duration-500">
+                <div className="md:col-span-2">
+                  <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-6">Business Details</p>
+                </div>
+                <Field 
+                  label="Business Name" 
+                  icon={Building2} 
+                  value={businessName} 
+                  onChange={setBusinessName} 
+                  error={errors.business_name} 
+                  placeholder="The Hardware Hub"
+                  required 
+                />
+                <Field 
+                  label="Business Address" 
+                  icon={MapPin} 
+                  value={businessAddress} 
+                  onChange={setBusinessAddress} 
+                  error={errors.business_address} 
+                  placeholder="Nairobi, Industrial Area"
+                  required 
+                />
+              </div>
+            )}
+
+            {role === 'rider' && (
+              <div className="pt-8 border-t border-slate-50 animate-in fade-in duration-500">
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-6">Vehicle Details</p>
+                <div className="relative group">
+                  <Truck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <select
+                    value={vehicleType}
+                    onChange={(e) => setVehicleType(e.target.value as VehicleType)}
+                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-[#0047BB]/10 font-medium text-slate-900 appearance-none"
+                  >
+                    <option value="">Select Vehicle Type (Optional)</option>
+                    <option value="motorbike">Motorbike</option>
+                    <option value="light_truck">Light Truck</option>
+                    <option value="heavy_van">Heavy Van</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Security */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-8 border-t border-slate-50">
+               <div className="md:col-span-2">
+                 <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-6">Security</p>
+               </div>
+               <Field 
+                  label="Create Password" 
+                  icon={Lock} 
+                  type="password"
+                  value={password} 
+                  onChange={setPassword} 
+                  error={errors.password} 
+                  placeholder="••••••••••••"
+                  required 
+               />
+               <Field 
+                  label="Confirm Password" 
+                  icon={Lock} 
+                  type="password"
+                  value={passwordConfirmation} 
+                  onChange={setPasswordConfirmation} 
+                  error={errors.password_confirmation} 
+                  placeholder="••••••••••••"
+                  required 
+               />
+            </div>
+
+            {errors._general && (
+              <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex gap-3 items-center">
+                <AlertCircle size={18} className="text-red-500 shrink-0" />
+                <p className="text-xs text-red-600 font-bold leading-tight">{errors._general}</p>
+              </div>
+            )}
+
+            <div className="pt-6">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-5 bg-[#0047BB] text-white rounded-xl font-black uppercase tracking-widest shadow-lg shadow-[#0047BB]/30 hover:bg-[#0037a3] disabled:opacity-50 transition-all flex items-center justify-center gap-3 group"
+              >
+                {submitting ? 'Creating Profile...' : 'Complete Registration'}
+                {!submitting && <ArrowRight size={20} className="transition-transform group-hover:translate-x-1" />}
+              </button>
+              
+              <p className="mt-8 text-center text-sm text-slate-400 font-medium">
+                Already have an account?{' '}
+                <Link to="/login" className="text-[#0047BB] font-black hover:underline underline-offset-4">
+                  Sign in here
+                </Link>
+              </p>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  error,
-  type = 'text',
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  error?: string;
-  type?: string;
-  placeholder?: string;
-}) {
+// --- Helper Components ---
+
+const ROLE_LABELS_SHORT: Record<Role, string> = {
+  retailer: 'Retailer',
+  dispatcher: 'Dispatcher',
+  rider: 'Rider',
+};
+
+function Field({ label, value, onChange, icon: Icon, error, type = 'text', placeholder, required }: any) {
   return (
-    <div>
-      <label className="block text-xs font-semibold uppercase tracking-wide text-ink/50 mb-1.5">{label}</label>
-      <input
-        type={type}
-        required
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className={`w-full border px-3 py-2.5 text-sm focus:outline-none focus:border-forest ${
-          error ? 'border-rust' : 'border-ink/15'
-        }`}
-      />
-      {error && <p className="text-xs text-rust mt-1">{error}</p>}
+    <div className="space-y-2">
+      <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <div className="relative group">
+        <Icon className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${error ? 'text-red-300' : 'text-slate-300 group-focus-within:text-[#0047BB]'}`} size={18} />
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-full pl-12 pr-4 py-4 bg-slate-50 border rounded-xl outline-none transition-all font-medium text-slate-900 ${
+            error ? 'border-red-200 focus:ring-red-100 ring-2' : 'border-slate-100 focus:ring-2 focus:ring-[#0047BB]/10 focus:border-[#0047BB]'
+          }`}
+        />
+      </div>
+      {error && <p className="text-[10px] font-bold text-red-500 uppercase tracking-tighter ml-1">{error}</p>}
     </div>
   );
 }
