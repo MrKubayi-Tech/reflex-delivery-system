@@ -1,24 +1,19 @@
-import { useNavigate } from 'react-router-dom';
 import type { AuthUser } from '../types';
-import { clearSession } from '../lib/auth';
+import { useLogoutFlow } from '../hooks/useLogoutFlow';
+import { LogoutConfirmModal } from './LogoutConfirmModal';
 
 /**
  * components/TopNav.tsx
  * Used by: pages/RetailerDashboard, pages/DispatcherDashboard, pages/RiderApp
  */
 export function TopNav({ user }: { user: AuthUser }) {
-  const navigate = useNavigate();
+  const { confirmOpen, loading, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
 
   const roleLabel: Record<AuthUser['role'], string> = {
     retailer: 'Retailer Portal',
     dispatcher: 'Dispatcher Console',
     rider: 'Rider App',
   };
-
-  function handleLogout() {
-    clearSession();
-    navigate('/login');
-  }
 
   return (
     <header className="border-b border-ink/10 bg-white">
@@ -31,11 +26,18 @@ export function TopNav({ user }: { user: AuthUser }) {
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-ink/70">{user.name}</span>
-          <button onClick={handleLogout} className="text-sm text-ink/50 hover:text-rust transition-colors">
+          <button onClick={requestLogout} className="text-sm text-ink/50 hover:text-rust transition-colors">
             Log out
           </button>
         </div>
       </div>
+
+      <LogoutConfirmModal
+        open={confirmOpen}
+        loading={loading}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
     </header>
   );
 }

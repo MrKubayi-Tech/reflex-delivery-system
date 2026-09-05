@@ -1,7 +1,8 @@
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom';
 import { cloneElement, type ReactElement } from 'react';
-import type { Role, User } from './types';
+import type { AuthUser, Role } from './types';
 import { getCurrentUser } from './lib/auth';
+import { useAutoLogout } from './hooks/useAutoLogout';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { RetailerDashboard } from './pages/RetailerDashboard';
@@ -19,8 +20,12 @@ function ProtectedRoute({
   children,
 }: {
   role: Role;
-  children: ReactElement<{ user?: User }>;
+  children: ReactElement<{ user?: AuthUser }>;
 }) {
+  // Mounted unconditionally (rules of hooks) - it no-ops internally once
+  // there's no token left, e.g. right after the Navigate below fires.
+  useAutoLogout();
+
   // Read fresh on every match — this component is (re)rendered whenever
   // Routes matches its path, so this is never stale.
   const user = getCurrentUser();
@@ -55,7 +60,7 @@ export default function App() {
           path="/retailer"
           element={
             <ProtectedRoute role="retailer">
-              <RetailerDashboard user={undefined as unknown as User} />
+              <RetailerDashboard user={undefined as unknown as AuthUser} />
             </ProtectedRoute>
           }
         />
@@ -63,7 +68,7 @@ export default function App() {
           path="/dispatcher"
           element={
             <ProtectedRoute role="dispatcher">
-              <DispatcherDashboard user={undefined as unknown as User} />
+              <DispatcherDashboard user={undefined as unknown as AuthUser} />
             </ProtectedRoute>
           }
         />
@@ -71,7 +76,7 @@ export default function App() {
           path="/rider"
           element={
             <ProtectedRoute role="rider">
-              <RiderApp user={undefined as unknown as User} />
+              <RiderApp user={undefined as unknown as AuthUser} />
             </ProtectedRoute>
           }
         />

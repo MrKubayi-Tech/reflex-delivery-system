@@ -17,6 +17,8 @@ import {
 
 import type { AuthUser, DeliveryRequest, DeliveryStatus } from '../types';
 import { fetchRequests, subscribeToRequests, updateRequestStatus } from '../lib/api';
+import { useLogoutFlow } from '../hooks/useLogoutFlow';
+import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 
 // --- Shared Theme Components ---
 
@@ -56,6 +58,7 @@ const NEXT_ACTION: Partial<Record<DeliveryStatus, { label: string; next: Deliver
 };
 
 export function RiderApp({ user }: { user: AuthUser }) {
+  const { confirmOpen, loading: loggingOut, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
   const [tasks, setTasks] = useState<DeliveryRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'all' | DeliveryStatus>('all');
@@ -120,11 +123,21 @@ export function RiderApp({ user }: { user: AuthUser }) {
           <NavItem icon={User} label="My Profile" disabled />
         </nav>
 
-        <button className="mt-auto flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white transition-colors">
+        <button
+          onClick={requestLogout}
+          className="mt-auto flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white transition-colors"
+        >
           <LogOut size={20} />
           <span className="font-medium text-sm">Logout</span>
         </button>
       </aside>
+
+      <LogoutConfirmModal
+        open={confirmOpen}
+        loading={loggingOut}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
 
       {/* Main Content Pane */}
       <main className="flex-1 flex overflow-hidden">
