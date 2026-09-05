@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { 
   LayoutDashboard, 
   PlusCircle, 
@@ -8,11 +8,9 @@ import {
   BarChart3, 
   Settings, 
   LogOut, 
-  Search, 
-  Filter, 
+  Search,  
   Printer, 
   ChevronRight,
-  MoreVertical,
   Bell,
   Smartphone,
   MapPin,
@@ -24,11 +22,9 @@ import type {
   AuthUser,
   DeliveryRequest,
   NewDeliveryRequestInput,
-  StatusEvent,
 } from "../types";
 import {
   createRequest,
-  fetchRequestEvents,
   fetchRequests,
   subscribeToRequests,
   ApiError,
@@ -87,7 +83,7 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
   const [currentView, setCurrentView] = useState<'dashboard' | 'deliveries' | 'details'>('dashboard');
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<DeliveryRequest | null>(null);
-  const [loading, setLoading] = useState(true);
+ const [, setLoading] = useState(true);
   const [showNewRequestModal, setShowNewRequestModal] = useState(false);
   
   // Form State

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <database>
-    <host>localhost</host>
-    <dbname>dispatch</dbname>
-    <dbuser>root</dbuser>
-    <dbpwd></dbpwd>
+    <host>sql202.infinityfree.com</host>
+    <dbname>if0_42841535_dispatch</dbname>
+    <dbuser>if0_42841535</dbuser>
+    <dbpwd>wDdY1GVgHB</dbpwd>
 </database>
-

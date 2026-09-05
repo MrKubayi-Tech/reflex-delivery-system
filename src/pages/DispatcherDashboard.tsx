@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { 
   LayoutDashboard, 
   Truck, 
@@ -14,8 +14,7 @@ import {
   AlertCircle,
   MapPin,
   Clock,
-  Zap,
-  ChevronRight
+  Zap
 } from 'lucide-react';
 
 import type { AuthUser, DeliveryRequest, Rider } from '../types';
@@ -82,7 +81,13 @@ export function DispatcherDashboard({ user }: { user: AuthUser }) {
       fetchRequests('pending'), 
       fetchAvailableRiders()
     ]);
-    setPending(reqs.sort((a, b) => (a.priority === 'high' ? -1 : 1)));
+setPending(
+  reqs.sort((a, b) => {
+    if (a.priority === 'high' && b.priority !== 'high') return -1;
+    if (a.priority !== 'high' && b.priority === 'high') return 1;
+    return 0;
+  })
+);
     setRiders(availableRiders);
   }
 

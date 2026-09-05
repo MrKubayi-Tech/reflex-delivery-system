@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Truck, 
   History, 
@@ -11,8 +11,7 @@ import {
   ChevronRight, 
   Navigation,
   QrCode,
-  ArrowLeft,
-  Circle
+  ArrowLeft
 } from 'lucide-react';
 
 import type { AuthUser, DeliveryRequest, DeliveryStatus } from '../types';
@@ -57,7 +56,7 @@ const NEXT_ACTION: Partial<Record<DeliveryStatus, { label: string; next: Deliver
   picked_up: { label: 'Mark as Delivered', next: 'delivered' },
 };
 
-export function RiderApp({ user }: { user: AuthUser }) {
+export function RiderApp({ user: _user }: { user: AuthUser }) {
   const { confirmOpen, loading: loggingOut, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
   const [tasks, setTasks] = useState<DeliveryRequest[]>([]);
   const [loading, setLoading] = useState(true);
