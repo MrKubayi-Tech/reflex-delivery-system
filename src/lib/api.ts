@@ -83,6 +83,15 @@ export async function register(input: NewUserInput): Promise<{ token: string; us
   return request('/api/auth/register', { method: 'POST', body: JSON.stringify(input) });
 }
 
+/**
+ * Revokes the current token server-side. Callers should clear the local
+ * session and redirect regardless of whether this succeeds — a network
+ * failure here shouldn't be able to trap someone in a logged-in UI.
+ */
+export async function logout(): Promise<void> {
+  await request('/api/auth/logout', { method: 'POST' });
+}
+
 export async function fetchRequests(status?: DeliveryStatus): Promise<DeliveryRequest[]> {
   const qs = status ? `?status=${status}` : '';
   return request(`/api/requests${qs}`);

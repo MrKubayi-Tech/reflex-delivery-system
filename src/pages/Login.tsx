@@ -1,5 +1,5 @@
 import React, { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Eye, 
   EyeOff, 
@@ -7,7 +7,8 @@ import {
   Lock, 
   ChevronRight,
   ShieldCheck,
-  UserCircle
+  UserCircle,
+  Clock
 } from 'lucide-react';
 
 import type { Role } from '../types';
@@ -30,8 +31,15 @@ const DEMO_ACCOUNTS: Record<Role, string> = {
   rider: '+254700000003',
 };
 
+const AUTO_LOGOUT_MESSAGES: Record<string, string> = {
+  idle: "You were signed out after a period of inactivity.",
+  expired: "Your session expired. Please sign in again.",
+};
+
 export function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const autoLogoutMessage = AUTO_LOGOUT_MESSAGES[searchParams.get('reason') ?? ''];
   const [role, setRole] = useState<Role>('retailer');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -119,6 +127,13 @@ export function Login() {
 
           <h3 className="text-3xl font-black text-slate-900 mb-2">Welcome Back</h3>
           <p className="text-slate-400 text-sm font-medium mb-10">Sign in to access your dashboard.</p>
+
+          {autoLogoutMessage && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex gap-3 items-center">
+              <Clock size={18} className="text-amber-500 shrink-0" />
+              <p className="text-xs text-amber-700 font-bold leading-tight">{autoLogoutMessage}</p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Industry Standard Segmented Control for Roles */}

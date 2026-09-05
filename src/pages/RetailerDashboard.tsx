@@ -33,6 +33,8 @@ import {
   subscribeToRequests,
   ApiError,
 } from "../lib/api";
+import { useLogoutFlow } from "../hooks/useLogoutFlow";
+import { LogoutConfirmModal } from "../components/LogoutConfirmModal";
 
 // --- Sub-components for the New Visual Language ---
 
@@ -81,6 +83,7 @@ const StatusPill = ({ status }: { status: string }) => {
 // --- Main Dashboard Component ---
 
 export function RetailerDashboard({ user }: { user: AuthUser }) {
+  const { confirmOpen, loading: loggingOut, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
   const [currentView, setCurrentView] = useState<'dashboard' | 'deliveries' | 'details'>('dashboard');
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<DeliveryRequest | null>(null);
@@ -91,6 +94,8 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
   const [form, setForm] = useState<NewDeliveryRequestInput>({
     customer_name: "", customer_phone: "", customer_address: "", item_description: "", priority: "standard"
   });
+  const [creating, setCreating] = useState(false);
+  const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchRequests().then(setRequests).finally(() => setLoading(false));
@@ -103,6 +108,36 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
     delivered: requests.filter(r => r.current_status === 'delivered').length,
     pending: requests.filter(r => r.current_status === 'pending').length
   }), [requests]);
+
+  function resetForm() {
+    setForm({ customer_name: "", customer_phone: "", customer_address: "", item_description: "", priority: "standard" });
+    setCreateErrors({});
+  }
+
+  async function handleCreateRequest(e: FormEvent) {
+    e.preventDefault();
+    if (creating) return;
+    setCreating(true);
+    setCreateErrors({});
+    try {
+      await createRequest(form);
+      // subscribeToRequests will push the fresh list via SSE, but refetch
+      // immediately too so the retailer sees their own new request without
+      // waiting on the next stream tick.
+      const updated = await fetchRequests();
+      setRequests(updated);
+      resetForm();
+      setShowNewRequestModal(false);
+    } catch (err) {
+      if (err instanceof ApiError && err.fieldErrors) {
+        setCreateErrors(err.fieldErrors);
+      } else {
+        setCreateErrors({ _general: err instanceof ApiError ? err.message : 'Could not create the request.' });
+      }
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <div className="flex h-screen bg-[#F8F9FB] text-slate-900 overflow-hidden">
@@ -126,11 +161,21 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
           <NavItem icon={Settings} label="Settings" disabled />
         </nav>
 
-        <button className="mt-auto flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white transition-colors">
+        <button
+          onClick={requestLogout}
+          className="mt-auto flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white transition-colors"
+        >
           <LogOut size={20} />
           <span className="font-medium text-sm">Logout</span>
         </button>
       </aside>
+
+      <LogoutConfirmModal
+        open={confirmOpen}
+        loading={loggingOut}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -386,37 +431,83 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
       {/* Slide-over New Request Panel (matches Screenshot 2) */}
       {showNewRequestModal && (
         <div className="fixed inset-0 z-50 flex justify-end">
-           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowNewRequestModal(false)}></div>
+           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => !creating && setShowNewRequestModal(false)}></div>
            <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col p-8">
               <div className="flex justify-between items-center mb-10">
                  <h2 className="text-xl font-black">New Delivery Request</h2>
-                 <button onClick={() => setShowNewRequestModal(false)} className="text-slate-300 hover:text-slate-600">✕</button>
+                 <button onClick={() => !creating && setShowNewRequestModal(false)} className="text-slate-300 hover:text-slate-600">✕</button>
               </div>
 
-              <form className="space-y-6 flex-1 overflow-y-auto">
+              <form onSubmit={handleCreateRequest} className="space-y-6 flex-1 overflow-y-auto">
+                 {createErrors._general && (
+                   <div className="p-4 bg-red-50 border border-red-100 rounded-xl">
+                     <p className="text-xs text-red-600 font-bold leading-tight">{createErrors._general}</p>
+                   </div>
+                 )}
                  <div>
                     <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Customer Name *</label>
-                    <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:ring-2 focus:ring-blue-600/10 outline-none" placeholder="e.g. Faith Njeri" />
+                    <input
+                      type="text"
+                      value={form.customer_name}
+                      onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:ring-2 focus:ring-blue-600/10 outline-none"
+                      placeholder="e.g. Faith Njeri"
+                    />
+                    {createErrors.customer_name && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.customer_name}</p>}
                  </div>
                  <div>
                     <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Customer Phone *</label>
                     <div className="relative">
                       <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                      <input type="tel" className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="0712 345 678" />
+                      <input
+                        type="tel"
+                        value={form.customer_phone}
+                        onChange={(e) => setForm({ ...form, customer_phone: e.target.value })}
+                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none"
+                        placeholder="0712 345 678"
+                      />
                     </div>
+                    {createErrors.customer_phone && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.customer_phone}</p>}
                  </div>
                  <div>
                     <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Delivery Address *</label>
-                    <textarea rows={3} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none resize-none" placeholder="House No, Street, Area..."></textarea>
+                    <textarea
+                      rows={3}
+                      value={form.customer_address}
+                      onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none resize-none"
+                      placeholder="House No, Street, Area..."
+                    ></textarea>
+                    {createErrors.customer_address && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.customer_address}</p>}
                  </div>
                  <div>
                     <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Item Description *</label>
-                    <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="e.g. Wireless Earphones (1pc)" />
+                    <input
+                      type="text"
+                      value={form.item_description}
+                      onChange={(e) => setForm({ ...form, item_description: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none"
+                      placeholder="e.g. Wireless Earphones (1pc)"
+                    />
+                    {createErrors.item_description && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.item_description}</p>}
                  </div>
-                 
+
                  <div className="pt-6">
-                    <button className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all">Create Delivery Request</button>
-                    <button onClick={(e) => { e.preventDefault(); setShowNewRequestModal(false); }} className="w-full py-4 text-slate-400 font-bold hover:text-slate-600 mt-2">Cancel</button>
+                    <button
+                      type="submit"
+                      disabled={creating}
+                      className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 disabled:opacity-50 transition-all"
+                    >
+                      {creating ? 'Creating...' : 'Create Delivery Request'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { resetForm(); setShowNewRequestModal(false); }}
+                      disabled={creating}
+                      className="w-full py-4 text-slate-400 font-bold hover:text-slate-600 mt-2 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
                  </div>
               </form>
            </div>

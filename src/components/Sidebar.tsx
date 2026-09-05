@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import type { AuthUser } from '../types';
-import { clearSession } from '../lib/auth';
+import { useLogoutFlow } from '../hooks/useLogoutFlow';
+import { LogoutConfirmModal } from './LogoutConfirmModal';
 
 const ROLE_LABEL: Record<AuthUser['role'], string> = {
   retailer: 'Retailer Portal',
@@ -18,12 +18,7 @@ export interface SidebarNavItem {
 }
 
 export function Sidebar({ user, items }: { user: AuthUser; items: SidebarNavItem[] }) {
-  const navigate = useNavigate();
-
-  function handleLogout() {
-    clearSession();
-    navigate('/login', { replace: true });
-  }
+  const { confirmOpen, loading, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
 
   const initials = user.name
     .split(' ')
@@ -74,12 +69,19 @@ export function Sidebar({ user, items }: { user: AuthUser; items: SidebarNavItem
           </div>
         </div>
         <button
-          onClick={handleLogout}
+          onClick={requestLogout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-cream/70 hover:bg-cream/10 hover:text-cream transition-colors"
         >
           <Icon.Logout /> Log out
         </button>
       </div>
+
+      <LogoutConfirmModal
+        open={confirmOpen}
+        loading={loading}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
     </aside>
   );
 }

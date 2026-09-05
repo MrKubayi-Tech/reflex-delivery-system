@@ -20,6 +20,8 @@ import {
 
 import type { AuthUser, DeliveryRequest, Rider } from '../types';
 import { assignRider, fetchAvailableRiders, fetchRequests, subscribeToRequests } from '../lib/api';
+import { useLogoutFlow } from '../hooks/useLogoutFlow';
+import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 
 // --- Shared Themed Sub-components ---
 
@@ -65,6 +67,7 @@ const PriorityBadge = ({ priority }: { priority: string }) => {
 // --- Main Dispatcher Dashboard ---
 
 export function DispatcherDashboard({ user }: { user: AuthUser }) {
+  const { confirmOpen, loading: loggingOut, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
   const [pending, setPending] = useState<DeliveryRequest[]>([]);
   const [riders, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,11 +138,21 @@ export function DispatcherDashboard({ user }: { user: AuthUser }) {
           <NavItem icon={Settings} label="Ops Settings" disabled />
         </nav>
 
-        <button className="mt-auto flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white transition-colors">
+        <button
+          onClick={requestLogout}
+          className="mt-auto flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white transition-colors"
+        >
           <LogOut size={20} />
           <span className="font-medium text-sm">Logout</span>
         </button>
       </aside>
+
+      <LogoutConfirmModal
+        open={confirmOpen}
+        loading={loggingOut}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
 
       {/* Main Container */}
       <main className="flex-1 flex flex-col overflow-hidden">
