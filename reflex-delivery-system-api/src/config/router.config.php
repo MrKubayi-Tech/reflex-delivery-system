@@ -40,7 +40,7 @@ class Router {
     }
 
     private function handleAuth($endpoint) {
-        $auth_api = ['login', 'register', 'forgot-password','reset-password'];
+        $auth_api = ['login', 'register', 'forgot-password', 'reset-password', 'logout'];
         if (in_array($endpoint, $auth_api)) {
            
             if ($this->method === 'POST') {
@@ -56,6 +56,13 @@ class Router {
     }
 
     private function handleRequests($id, $sub) {
+        // assign.php/status.php/events.php read $_GET['id'], but the id
+        // arrives as a URL path segment (/api/requests/{id}/assign), not
+        // a query param — nothing was ever populating it. Bridge that here.
+        if ($id) {
+            $_GET['id'] = $id;
+        }
+
         if (!$id) {
             
             if ($this->method === 'GET') {

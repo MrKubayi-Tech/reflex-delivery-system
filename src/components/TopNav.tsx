@@ -1,0 +1,43 @@
+import type { AuthUser } from '../types';
+import { useLogoutFlow } from '../hooks/useLogoutFlow';
+import { LogoutConfirmModal } from './LogoutConfirmModal';
+
+/**
+ * components/TopNav.tsx
+ * Used by: pages/RetailerDashboard, pages/DispatcherDashboard, pages/RiderApp
+ */
+export function TopNav({ user }: { user: AuthUser }) {
+  const { confirmOpen, loading, requestLogout, cancelLogout, confirmLogout } = useLogoutFlow();
+
+  const roleLabel: Record<AuthUser['role'], string> = {
+    retailer: 'Retailer Portal',
+    dispatcher: 'Dispatcher Console',
+    rider: 'Rider App',
+  };
+
+  return (
+    <header className="border-b border-ink/10 bg-white">
+      <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div>
+          <div className="font-display text-xl font-semibold text-forest">
+            Fikisha<span className="text-amber italic font-medium">.</span>
+          </div>
+          <div className="text-xs text-ink/50 uppercase tracking-wide">{roleLabel[user.role]}</div>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-ink/70">{user.name}</span>
+          <button onClick={requestLogout} className="text-sm text-ink/50 hover:text-rust transition-colors">
+            Log out
+          </button>
+        </div>
+      </div>
+
+      <LogoutConfirmModal
+        open={confirmOpen}
+        loading={loading}
+        onCancel={cancelLogout}
+        onConfirm={confirmLogout}
+      />
+    </header>
+  );
+}
