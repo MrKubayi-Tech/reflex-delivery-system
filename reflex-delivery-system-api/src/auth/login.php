@@ -15,7 +15,7 @@ $db = new Database();
 $pdo = $db->get_connection();
 
 $input = json_decode(file_get_contents('php://input'), true);
-$phone = $input['phone'] ?? null;
+$phone = is_string($input['phone'] ?? null) ? trim($input['phone']) : null;
 $password = $input['password'] ?? null;
 
 $errors = [];

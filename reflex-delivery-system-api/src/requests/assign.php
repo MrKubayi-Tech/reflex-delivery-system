@@ -33,16 +33,51 @@ if ($existing['current_status'] !== 'pending') {
     exit();
 }
 
-$stmt = $pdo->prepare(
-    'UPDATE delivery_requests SET assigned_rider_id = ?, dispatcher_id = ?, current_status = ? WHERE delivery_request_id = ?'
-);
-$stmt->execute([$riderId, $user['id'], 'assigned', $requestId]);
+// The rider_id came from the client — confirm it actually names a rider
+// before writing it as a foreign key. Without this, a stale or forged
+// id silently attaches a non-rider (or nonexistent) user to a delivery.
+$stmt = $pdo->prepare('SELECT id FROM users WHERE id = ? AND role = ? LIMIT 1');
+$stmt->execute([$riderId, 'rider']);
+if (!$stmt->fetch()) {
+    http_response_code(422);
+    echo json_encode(['data' => ['errors' => ['rider_id' => 'Selected rider does not exist']]]);
+    exit();
+}
 
-$stmt = $pdo->prepare(
-    'INSERT INTO status_events (delivery_request_id, changed_by, previous_status, new_status)
-     VALUES (?, ?, ?, ?)'
-);
-$stmt->execute([$requestId, $user['id'], 'pending', 'assigned']);
+$pdo->beginTransaction();
+try {
+    // Two dispatchers can both load this page while the request is still
+    // "pending" and both click Assign a moment apart — the SELECT above
+    // doesn't stop that. Re-checking current_status inside the UPDATE's
+    // WHERE clause, atomically, closes that race: only the first write
+    // wins, and rowCount() tells the loser it lost.
+    $stmt = $pdo->prepare(
+        "UPDATE delivery_requests
+         SET assigned_rider_id = ?, dispatcher_id = ?, current_status = 'assigned'
+         WHERE delivery_request_id = ? AND current_status = 'pending'"
+    );
+    $stmt->execute([$riderId, $user['id'], $requestId]);
+
+    if ($stmt->rowCount() === 0) {
+        $pdo->rollBack();
+        http_response_code(409);
+        echo json_encode(['error' => ['code' => 'invalid_transition', 'message' => 'Only pending requests can be assigned']]);
+        exit();
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO status_events (delivery_request_id, changed_by, previous_status, new_status)
+         VALUES (?, ?, ?, ?)'
+    );
+    $stmt->execute([$requestId, $user['id'], 'pending', 'assigned']);
+
+    $pdo->commit();
+} catch (Throwable $e) {
+    $pdo->rollBack();
+    http_response_code(500);
+    echo json_encode(['error' => ['code' => 'server_error', 'message' => 'Could not assign rider. Please try again.']]);
+    exit();
+}
 
 echo json_encode([
     'data' => [

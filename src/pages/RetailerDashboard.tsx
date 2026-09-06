@@ -15,7 +15,9 @@ import {
   Smartphone,
   MapPin,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  RefreshCw,
+  WifiOff,
 } from "lucide-react";
 
 import type {
@@ -26,11 +28,17 @@ import type {
 import {
   createRequest,
   fetchRequests,
-  subscribeToRequests,
+  pollRequests,
   ApiError,
 } from "../lib/api";
 import { useLogoutFlow } from "../hooks/useLogoutFlow";
 import { LogoutConfirmModal } from "../components/LogoutConfirmModal";
+import {
+  validateRequired,
+  validatePhone,
+  validateWeight,
+  runValidators,
+} from "../lib/validation";
 
 // --- Sub-components for the New Visual Language ---
 
@@ -83,9 +91,12 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
   const [currentView, setCurrentView] = useState<'dashboard' | 'deliveries' | 'details'>('dashboard');
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<DeliveryRequest | null>(null);
- const [, setLoading] = useState(true);
+ const [loading, setLoading] = useState(true);
   const [showNewRequestModal, setShowNewRequestModal] = useState(false);
-  
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
   // Form State
   const [form, setForm] = useState<NewDeliveryRequestInput>({
     customer_name: "", customer_phone: "", customer_address: "", item_description: "", priority: "standard"
@@ -93,9 +104,37 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
   const [creating, setCreating] = useState(false);
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
 
+  /**
+   * There is no live push channel from the backend (see DESIGN.md 6.2) —
+   * a dispatcher assigning a rider, or a status update from a rider,
+   * only becomes visible here on the next fetch. So this dashboard polls
+   * on an interval AND exposes a manual "Sync" button, so a retailer
+   * checking on a specific order isn't stuck waiting for the timer.
+   */
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      const data = await fetchRequests();
+      setRequests(data);
+      setSyncError(false);
+      setLastSyncedAt(new Date());
+    } catch {
+      setSyncError(true);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   useEffect(() => {
-    fetchRequests().then(setRequests).finally(() => setLoading(false));
-    return subscribeToRequests(setRequests);
+    fetchRequests()
+      .then((data) => { setRequests(data); setLastSyncedAt(new Date()); setSyncError(false); })
+      .catch(() => setSyncError(true))
+      .finally(() => setLoading(false));
+
+    return pollRequests(
+      (data) => { setRequests(data); setLastSyncedAt(new Date()); setSyncError(false); },
+      { onError: () => setSyncError(true) }
+    );
   }, []);
 
   const stats = useMemo(() => ({
@@ -110,18 +149,39 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
     setCreateErrors({});
   }
 
+  /** Mirrors create.php's required-field rules (see requests/create.php). */
+  function validateForm(): Record<string, string> {
+    return runValidators({
+      customer_name: () => validateRequired(form.customer_name, 'Customer name'),
+      customer_phone: () => validatePhone(form.customer_phone),
+      customer_address: () => validateRequired(form.customer_address, 'Delivery address'),
+      item_description: () => validateRequired(form.item_description, 'Item description'),
+      weight_kg: () => validateWeight(form.weight_kg ? String(form.weight_kg) : ''),
+    });
+  }
+
+  function validateField(field: string) {
+    const fresh = validateForm();
+    setCreateErrors((prev) => ({ ...prev, [field]: fresh[field] ?? '' }));
+  }
+
   async function handleCreateRequest(e: FormEvent) {
     e.preventDefault();
     if (creating) return;
+    const clientErrors = validateForm();
+    if (Object.keys(clientErrors).length > 0) {
+      setCreateErrors(clientErrors);
+      return;
+    }
     setCreating(true);
     setCreateErrors({});
     try {
       await createRequest(form);
-      // subscribeToRequests will push the fresh list via SSE, but refetch
-      // immediately too so the retailer sees their own new request without
-      // waiting on the next stream tick.
-      const updated = await fetchRequests();
-      setRequests(updated);
+      // The dispatcher dashboard only learns about this via its own poll
+      // (no live push channel — see pollRequests' docstring), but we
+      // refetch our own list immediately so the retailer who just
+      // submitted sees it without waiting on the interval.
+      await syncNow();
       resetForm();
       setShowNewRequestModal(false);
     } catch (err) {
@@ -184,6 +244,17 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
           </h2>
           
           <div className="flex items-center gap-6">
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all disabled:opacity-60 ${
+                syncError ? 'border-red-100 text-red-500 bg-red-50' : 'border-slate-100 text-slate-500 hover:text-slate-700 hover:border-slate-200'
+              }`}
+            >
+              {syncError ? <WifiOff size={14} /> : <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />}
+              {syncing ? 'Syncing...' : syncError ? 'Sync failed' : 'Sync'}
+            </button>
             <button className="relative p-2 text-slate-400 hover:text-slate-600">
               <Bell size={20} />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
@@ -229,6 +300,12 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
+                      {loading && (
+                        <tr><td colSpan={4} className="px-5 py-8 text-center text-slate-300 font-bold uppercase tracking-widest text-xs animate-pulse">Loading requests...</td></tr>
+                      )}
+                      {!loading && requests.length === 0 && (
+                        <tr><td colSpan={4} className="px-5 py-8 text-center text-slate-400 text-sm">No delivery requests yet.</td></tr>
+                      )}
                       {requests.slice(0, 5).map(r => (
                         <tr key={r.tracking_code} className="hover:bg-slate-50 transition-colors">
                           <td className="px-5 py-4 font-mono font-bold text-slate-600">{r.tracking_code}</td>
@@ -446,7 +523,8 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
                       type="text"
                       value={form.customer_name}
                       onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:ring-2 focus:ring-blue-600/10 outline-none"
+                      onBlur={() => validateField('customer_name')}
+                      className={`w-full px-4 py-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ${createErrors.customer_name ? 'border-red-200 focus:ring-red-100' : 'border-slate-100 focus:ring-blue-600/10'}`}
                       placeholder="e.g. Faith Njeri"
                     />
                     {createErrors.customer_name && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.customer_name}</p>}
@@ -459,7 +537,8 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
                         type="tel"
                         value={form.customer_phone}
                         onChange={(e) => setForm({ ...form, customer_phone: e.target.value })}
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none"
+                        onBlur={() => validateField('customer_phone')}
+                        className={`w-full pl-12 pr-4 py-3 bg-slate-50 border rounded-xl outline-none ${createErrors.customer_phone ? 'border-red-200' : 'border-slate-100'}`}
                         placeholder="0712 345 678"
                       />
                     </div>
@@ -471,7 +550,8 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
                       rows={3}
                       value={form.customer_address}
                       onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none resize-none"
+                      onBlur={() => validateField('customer_address')}
+                      className={`w-full px-4 py-3 bg-slate-50 border rounded-xl outline-none resize-none ${createErrors.customer_address ? 'border-red-200' : 'border-slate-100'}`}
                       placeholder="House No, Street, Area..."
                     ></textarea>
                     {createErrors.customer_address && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.customer_address}</p>}
@@ -482,7 +562,8 @@ export function RetailerDashboard({ user }: { user: AuthUser }) {
                       type="text"
                       value={form.item_description}
                       onChange={(e) => setForm({ ...form, item_description: e.target.value })}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl outline-none"
+                      onBlur={() => validateField('item_description')}
+                      className={`w-full px-4 py-3 bg-slate-50 border rounded-xl outline-none ${createErrors.item_description ? 'border-red-200' : 'border-slate-100'}`}
                       placeholder="e.g. Wireless Earphones (1pc)"
                     />
                     {createErrors.item_description && <p className="text-[11px] text-red-500 font-semibold mt-1">{createErrors.item_description}</p>}

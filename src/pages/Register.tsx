@@ -15,6 +15,13 @@ import {
 import type { Role, VehicleType } from '../types';
 import { register, ApiError } from '../lib/api';
 import { saveSession } from '../lib/auth';
+import {
+  validatePhone,
+  validateRequired,
+  validatePassword,
+  validatePasswordConfirmation,
+  runValidators,
+} from '../lib/validation';
 
 // --- Visual & Copy Data ---
 
@@ -51,8 +58,39 @@ export function Register() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  /**
+   * Mirrors register.php's rules so a mistake surfaces the moment
+   * someone leaves a field, instead of only after a round trip. The
+   * backend re-checks everything regardless — this is a UX layer, not
+   * the source of truth.
+   */
+  function validate(): Record<string, string> {
+    return runValidators({
+      full_name: () => validateRequired(fullName, 'Full name'),
+      phone_number: () => validatePhone(phone),
+      password: () => validatePassword(password),
+      password_confirmation: () => validatePasswordConfirmation(password, passwordConfirmation),
+      ...(role === 'retailer'
+        ? {
+            business_name: () => validateRequired(businessName, 'Business name'),
+            business_address: () => validateRequired(businessAddress, 'Business address'),
+          }
+        : {}),
+    });
+  }
+
+  function validateField(field: string) {
+    const fresh = validate();
+    setErrors((prev) => ({ ...prev, [field]: fresh[field] ?? '' }));
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const clientErrors = validate();
+    if (Object.keys(clientErrors).length > 0) {
+      setErrors(clientErrors);
+      return;
+    }
     setSubmitting(true);
     setErrors({});
 
@@ -183,6 +221,7 @@ export function Register() {
                   icon={User} 
                   value={fullName} 
                   onChange={setFullName} 
+                  onBlur={() => validateField('full_name')}
                   error={errors.full_name} 
                   placeholder="e.g. John Doe"
                   required 
@@ -193,6 +232,7 @@ export function Register() {
                   icon={Smartphone} 
                   value={phone} 
                   onChange={setPhone} 
+                  onBlur={() => validateField('phone_number')}
                   error={errors.phone_number} 
                   placeholder="+254 700..."
                   type="tel"
@@ -211,6 +251,7 @@ export function Register() {
                   icon={Building2} 
                   value={businessName} 
                   onChange={setBusinessName} 
+                  onBlur={() => validateField('business_name')}
                   error={errors.business_name} 
                   placeholder="The Hardware Hub"
                   required 
@@ -220,6 +261,7 @@ export function Register() {
                   icon={MapPin} 
                   value={businessAddress} 
                   onChange={setBusinessAddress} 
+                  onBlur={() => validateField('business_address')}
                   error={errors.business_address} 
                   placeholder="Nairobi, Industrial Area"
                   required 
@@ -257,8 +299,9 @@ export function Register() {
                   type="password"
                   value={password} 
                   onChange={setPassword} 
+                  onBlur={() => validateField('password')}
                   error={errors.password} 
-                  placeholder="••••••••••••"
+                  placeholder="At least 8 characters"
                   required 
                />
                <Field 
@@ -267,6 +310,7 @@ export function Register() {
                   type="password"
                   value={passwordConfirmation} 
                   onChange={setPasswordConfirmation} 
+                  onBlur={() => validateField('password_confirmation')}
                   error={errors.password_confirmation} 
                   placeholder="••••••••••••"
                   required 
@@ -312,7 +356,7 @@ const ROLE_LABELS_SHORT: Record<Role, string> = {
   rider: 'Rider',
 };
 
-function Field({ label, value, onChange, icon: Icon, error, type = 'text', placeholder, required }: any) {
+function Field({ label, value, onChange, onBlur, icon: Icon, error, type = 'text', placeholder, required }: any) {
   return (
     <div className="space-y-2">
       <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -324,6 +368,7 @@ function Field({ label, value, onChange, icon: Icon, error, type = 'text', place
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={placeholder}
           className={`w-full pl-12 pr-4 py-4 bg-slate-50 border rounded-xl outline-none transition-all font-medium text-slate-900 ${
             error ? 'border-red-200 focus:ring-red-100 ring-2' : 'border-slate-100 focus:ring-2 focus:ring-[#0047BB]/10 focus:border-[#0047BB]'

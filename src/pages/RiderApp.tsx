@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 import type { AuthUser, DeliveryRequest, DeliveryStatus } from '../types';
-import { fetchRequests, subscribeToRequests, updateRequestStatus } from '../lib/api';
+import { fetchRequests, pollRequests, updateRequestStatus } from '../lib/api';
 import { useLogoutFlow } from '../hooks/useLogoutFlow';
 import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 
@@ -65,10 +65,20 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
   const [confirming, setConfirming] = useState(false);
   const [scanCode, setScanCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [syncError, setSyncError] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchRequests().then(setTasks).finally(() => setLoading(false));
-    return subscribeToRequests(setTasks);
+    fetchRequests()
+      .then(setTasks)
+      .catch(() => setSyncError(true))
+      .finally(() => setLoading(false));
+
+    // No live push channel from the backend (see lib/api.ts's
+    // pollRequests docstring) — a rider needs to notice a new
+    // assignment from the dispatcher without refreshing the page, so
+    // this polls instead of relying on a stream that doesn't exist.
+    return pollRequests(setTasks, { onError: () => setSyncError(true) });
   }, []);
 
   const selectedTask = tasks.find((t) => t.delivery_request_id === selectedId) ?? null;
@@ -85,6 +95,7 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
     }
 
     setBusy(true);
+    setStatusError(null);
     try {
       await updateRequestStatus(
         selectedTask.delivery_request_id,
@@ -98,7 +109,10 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
       setTasks(updated);
       if (action.next === 'delivered') setSelectedId(null);
     } catch (err) {
-      alert((err as Error).message);
+      // 422 here almost always means the scan code didn't match
+      // tracking_code (see status.php) — surface that inline next to the
+      // input instead of an alert() that blocks the whole page.
+      setStatusError(err instanceof Error ? err.message : 'Could not update status. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -144,7 +158,12 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
         {/* Left List Pane */}
         <div className={`w-96 border-r border-slate-200 bg-white flex flex-col shrink-0 ${selectedTask ? 'hidden lg:flex' : 'flex'}`}>
           <div className="p-6 border-b border-slate-100">
-            <h2 className="text-lg font-black mb-4">My Deliveries</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-black">My Deliveries</h2>
+              {syncError && (
+                <span className="text-[10px] font-bold text-red-500 uppercase tracking-tighter">Sync issue</span>
+              )}
+            </div>
             <div className="flex gap-2 p-1 bg-slate-50 rounded-xl">
                {(['all', 'assigned', 'picked_up'] as const).map(t => (
                  <button 
@@ -164,7 +183,7 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
             ) : visible.map(task => (
               <button 
                 key={task.delivery_request_id}
-                onClick={() => setSelectedId(task.delivery_request_id)}
+                onClick={() => { setSelectedId(task.delivery_request_id); setConfirming(false); setStatusError(null); }}
                 className={`w-full text-left p-6 transition-all group hover:bg-blue-50/30 ${selectedId === task.delivery_request_id ? 'bg-blue-50 border-r-4 border-blue-600' : ''}`}
               >
                 <div className="flex justify-between items-start mb-2">
@@ -288,11 +307,14 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
                              <input 
                                type="text" 
                                value={scanCode}
-                               onChange={(e) => setScanCode(e.target.value.toUpperCase())}
+                               onChange={(e) => { setScanCode(e.target.value.toUpperCase()); setStatusError(null); }}
                                placeholder="ENTER VERIFICATION CODE" 
-                               className="w-full text-center py-5 bg-slate-50 border border-slate-200 rounded-xl text-xl font-mono font-black tracking-[0.3em] outline-none focus:border-blue-600 focus:bg-white transition-all"
+                               className={`w-full text-center py-5 bg-slate-50 border rounded-xl text-xl font-mono font-black tracking-[0.3em] outline-none focus:bg-white transition-all ${statusError ? 'border-red-300 focus:border-red-400' : 'border-slate-200 focus:border-blue-600'}`}
                                autoFocus
                              />
+                             {statusError && (
+                               <p className="text-xs text-red-500 font-bold text-center -mt-3">{statusError}</p>
+                             )}
 
                              <div className="flex gap-3">
                                 <button 
@@ -302,7 +324,7 @@ export function RiderApp({ user: _user }: { user: AuthUser }) {
                                 >
                                   {busy ? 'Verifying...' : 'Finish Delivery'}
                                 </button>
-                                <button onClick={() => setConfirming(false)} className="px-6 py-4 text-slate-400 font-bold hover:text-slate-600">Cancel</button>
+                                <button onClick={() => { setConfirming(false); setStatusError(null); }} className="px-6 py-4 text-slate-400 font-bold hover:text-slate-600">Cancel</button>
                              </div>
                           </div>
                         ) : (

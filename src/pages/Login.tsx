@@ -14,6 +14,7 @@ import {
 import type { Role } from '../types';
 import { login, ApiError } from '../lib/api';
 import { saveSession } from '../lib/auth';
+import { validatePhone, validateRequired } from '../lib/validation';
 
 // --- Visual Styles ---
 
@@ -45,19 +46,50 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const canSubmit = phone.trim().length > 0 && password.length > 0 && !loading;
 
+  /** Inline pre-check, mirrors the backend's required-field rules (login.php). */
+  function validate(): boolean {
+    const errors: Record<string, string> = {};
+    const phoneError = validatePhone(phone);
+    if (phoneError) errors.phone = phoneError;
+    const passwordError = validateRequired(password, 'Password');
+    if (passwordError) errors.password = passwordError;
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  /**
+   * A successful login issues a real server-side token before the
+   * frontend even knows which role the account actually has. If that
+   * role doesn't match the tab the person picked, we must not leave
+   * that token valid and unused on the server — revoke it immediately
+   * rather than silently discarding it client-side.
+   */
+  async function revokeOrphanedToken(token: string) {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Best effort — the token will still expire on its own (24h TTL).
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
     setError(null);
+    if (!validate()) return;
     setLoading(true);
     try {
       const { token, user } = await login(phone.trim(), password);
       if (user.role !== role) {
-        setError(`Access denied. This account is registered as a ${ROLE_LABELS[user.role]}.`);
+        await revokeOrphanedToken(token);
+        setError(`Access denied. This account is registered as a ${ROLE_LABELS[user.role]}. Switch tabs above and try again.`);
         setLoading(false);
         return;
       }
@@ -69,7 +101,11 @@ export function Login() {
       };
       navigate(landing[user.role]);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Invalid phone number or password.');
+      if (err instanceof ApiError && err.fieldErrors) {
+        setFieldErrors(err.fieldErrors);
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Invalid phone number or password.');
+      }
     } finally {
       setLoading(false);
     }
@@ -80,6 +116,7 @@ export function Login() {
     setPhone(DEMO_ACCOUNTS[demoRole]);
     setPassword('password123');
     setError(null);
+    setFieldErrors({});
   }
 
   return (
@@ -170,11 +207,15 @@ export function Login() {
                   type="tel"
                   required
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => { setPhone(e.target.value); if (fieldErrors.phone) setFieldErrors({ ...fieldErrors, phone: '' }); }}
+                  onBlur={() => { const err = validatePhone(phone); setFieldErrors((f) => ({ ...f, phone: err ?? '' })); }}
                   placeholder="+254 700 000 000"
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-[#0047BB]/10 focus:border-[#0047BB] transition-all font-medium text-slate-900"
+                  className={`w-full pl-12 pr-4 py-4 bg-slate-50 border rounded-xl outline-none focus:ring-2 transition-all font-medium text-slate-900 ${
+                    fieldErrors.phone ? 'border-red-200 focus:ring-red-100' : 'border-slate-100 focus:ring-[#0047BB]/10 focus:border-[#0047BB]'
+                  }`}
                 />
               </div>
+              {fieldErrors.phone && <p className="text-[10px] font-bold text-red-500 uppercase tracking-tighter mt-1.5 ml-1">{fieldErrors.phone}</p>}
             </div>
 
             {/* Password Input */}
@@ -193,9 +234,11 @@ export function Login() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors({ ...fieldErrors, password: '' }); }}
                   placeholder="••••••••••••"
-                  className="w-full pl-12 pr-12 py-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-[#0047BB]/10 focus:border-[#0047BB] transition-all font-medium text-slate-900"
+                  className={`w-full pl-12 pr-12 py-4 bg-slate-50 border rounded-xl outline-none focus:ring-2 transition-all font-medium text-slate-900 ${
+                    fieldErrors.password ? 'border-red-200 focus:ring-red-100' : 'border-slate-100 focus:ring-[#0047BB]/10 focus:border-[#0047BB]'
+                  }`}
                 />
                 <button
                   type="button"
@@ -205,6 +248,7 @@ export function Login() {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+              {fieldErrors.password && <p className="text-[10px] font-bold text-red-500 uppercase tracking-tighter mt-1.5 ml-1">{fieldErrors.password}</p>}
             </div>
 
             {error && (

@@ -11,18 +11,38 @@ $user = Auth::requireUser($pdo, ['retailer']);
 
 $input = json_decode(file_get_contents('php://input'), true);
 
-$customerName     = $input['customer_name'] ?? null;
-$customerPhone    = $input['customer_phone'] ?? null;
-$customerAddress  = $input['customer_address'] ?? null;
-$itemDescription  = $input['item_description'] ?? null;
-$weightKg         = $input['weight_kg'] ?? null;
+$customerName     = is_string($input['customer_name'] ?? null) ? trim($input['customer_name']) : null;
+$customerPhone    = is_string($input['customer_phone'] ?? null) ? trim($input['customer_phone']) : null;
+$customerAddress  = is_string($input['customer_address'] ?? null) ? trim($input['customer_address']) : null;
+$itemDescription  = is_string($input['item_description'] ?? null) ? trim($input['item_description']) : null;
+$weightKgRaw      = $input['weight_kg'] ?? null;
 $priority         = $input['priority'] ?? 'standard';
+
+$ALLOWED_PRIORITIES = ['standard', 'high'];
+$PHONE_PATTERN = '/^\+?[0-9]{9,15}$/';
 
 $errors = [];
 if (!$customerName)    {$errors['customer_name'] = 'Customer name is required';}
-if (!$customerPhone)   {$errors['customer_phone'] = 'Customer phone is required';}
+if (!$customerPhone) {
+    $errors['customer_phone'] = 'Customer phone is required';
+} elseif (!preg_match($PHONE_PATTERN, str_replace([' ', '-'], '', $customerPhone))) {
+    $errors['customer_phone'] = 'Enter a valid phone number, e.g. +254712345678';
+}
 if (!$customerAddress) {$errors['customer_address'] = 'Address is required';}
 if (!$itemDescription) {$errors['item_description'] = 'Item description is required';}
+
+$weightKg = null;
+if ($weightKgRaw !== null && $weightKgRaw !== '') {
+    if (!is_numeric($weightKgRaw) || (float)$weightKgRaw <= 0) {
+        $errors['weight_kg'] = 'Weight must be a positive number';
+    } else {
+        $weightKg = (float)$weightKgRaw;
+    }
+}
+
+if (!in_array($priority, $ALLOWED_PRIORITIES, true)) {
+    $errors['priority'] = 'Priority must be standard or high';
+}
 
 if ($errors) {
     http_response_code(422);

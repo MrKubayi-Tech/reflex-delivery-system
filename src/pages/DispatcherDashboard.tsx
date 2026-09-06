@@ -14,11 +14,13 @@ import {
   AlertCircle,
   MapPin,
   Clock,
-  Zap
+  Zap,
+  RefreshCw,
+  WifiOff,
 } from 'lucide-react';
 
 import type { AuthUser, DeliveryRequest, Rider } from '../types';
-import { assignRider, fetchAvailableRiders, fetchRequests, subscribeToRequests } from '../lib/api';
+import { assignRider, fetchAvailableRiders, fetchRequests, pollRequests, ApiError } from '../lib/api';
 import { useLogoutFlow } from '../hooks/useLogoutFlow';
 import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 
@@ -72,28 +74,61 @@ export function DispatcherDashboard({ user }: { user: AuthUser }) {
   const [loading, setLoading] = useState(true);
   const [assignTarget, setAssignTarget] = useState<DeliveryRequest | null>(null);
   const [selectedRiderId, setSelectedRiderId] = useState<number | null>(null);
-  const [riderSearch, setRiderSearch] = useState('');
   const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
+  function sortByPriority(reqs: DeliveryRequest[]) {
+    return [...reqs].sort((a, b) => {
+      if (a.priority === 'high' && b.priority !== 'high') return -1;
+      if (a.priority !== 'high' && b.priority === 'high') return 1;
+      return 0;
+    });
+  }
 
   async function refresh() {
     const [reqs, availableRiders] = await Promise.all([
-      fetchRequests('pending'), 
+      fetchRequests('pending'),
       fetchAvailableRiders()
     ]);
-setPending(
-  reqs.sort((a, b) => {
-    if (a.priority === 'high' && b.priority !== 'high') return -1;
-    if (a.priority !== 'high' && b.priority === 'high') return 1;
-    return 0;
-  })
-);
+    setPending(sortByPriority(reqs));
     setRiders(availableRiders);
   }
 
+  /**
+   * Manual sync, mirrors RetailerDashboard's syncNow. Retailers creating
+   * a request and dispatchers assigning riders happen in two separate
+   * browser sessions with no push channel between them (see
+   * lib/api.ts pollRequests docstring) — this is how a dispatcher pulls
+   * in a request the moment it's created rather than waiting on the
+   * interval.
+   */
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      await refresh();
+      setSyncError(false);
+      setLastSyncedAt(new Date());
+    } catch {
+      setSyncError(true);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
-    return subscribeToRequests((all) => setPending(all.filter(r => r.current_status === 'pending')), 'pending');
+    refresh()
+      .then(() => { setLastSyncedAt(new Date()); setSyncError(false); })
+      .catch(() => setSyncError(true))
+      .finally(() => setLoading(false));
+
+    return pollRequests(
+      (all) => { setPending(sortByPriority(all.filter(r => r.current_status === 'pending'))); setLastSyncedAt(new Date()); setSyncError(false); },
+      { status: 'pending', onError: () => setSyncError(true) }
+    );
   }, []);
 
   const filteredRequests = useMemo(() => {
@@ -104,19 +139,31 @@ setPending(
     );
   }, [pending, search]);
 
-  const visibleRiders = riders.filter(r => 
-    r.full_name.toLowerCase().includes(riderSearch.toLowerCase())
-  );
 
   const handleAssign = async () => {
     if (!assignTarget || !selectedRiderId) return;
     setSubmitting(true);
+    setAssignError(null);
     try {
       await assignRider(assignTarget.delivery_request_id, selectedRiderId);
       setAssignTarget(null);
-      refresh();
-    } catch (e) {
-      alert("Assignment failed");
+      setSelectedRiderId(null);
+      await refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'invalid_transition') {
+        // Another dispatcher grabbed this request first — the list we
+        // were looking at is now stale. Refresh it and say so, rather
+        // than a generic failure the person can't act on.
+        setAssignError('This request was already assigned by someone else. The list has been refreshed.');
+        setAssignTarget(null);
+        await refresh();
+      } else if (err instanceof ApiError && err.code === 'not_found') {
+        setAssignError('This request no longer exists. The list has been refreshed.');
+        setAssignTarget(null);
+        await refresh();
+      } else {
+        setAssignError(err instanceof ApiError ? err.message : 'Could not assign a rider. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -171,6 +218,17 @@ setPending(
           </div>
           
           <div className="flex items-center gap-6">
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              title={lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}` : undefined}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all disabled:opacity-60 ${
+                syncError ? 'border-red-100 text-red-500 bg-red-50' : 'border-slate-100 text-slate-500 hover:text-slate-700 hover:border-slate-200'
+              }`}
+            >
+              {syncError ? <WifiOff size={14} /> : <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />}
+              {syncing ? 'Syncing...' : syncError ? 'Sync failed' : 'Sync'}
+            </button>
             <button className="p-2 text-slate-400 hover:text-slate-600 relative">
               <Bell size={20} />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
@@ -189,6 +247,13 @@ setPending(
 
         <div className="flex-1 overflow-y-auto p-8">
           <div className="max-w-6xl mx-auto space-y-6">
+            {assignError && !assignTarget && (
+              <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-start gap-3">
+                <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 font-bold leading-tight flex-1">{assignError}</p>
+                <button onClick={() => setAssignError(null)} className="text-amber-400 hover:text-amber-600 text-xs font-bold">✕</button>
+              </div>
+            )}
             {/* Stats Overview */}
             <div className="grid grid-cols-3 gap-6">
               <SummaryCard label="Pending Requests" value={pending.length} icon={Clock} colorClass="bg-orange-50 text-orange-600" />
@@ -255,7 +320,7 @@ setPending(
                         </td>
                         <td className="px-6 py-5 text-right">
                           <button 
-                            onClick={() => setAssignTarget(req)}
+                            onClick={() => { setAssignTarget(req); setAssignError(null); setSelectedRiderId(null); }}
                             className="bg-white border border-slate-200 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-tight hover:bg-[#0047BB] hover:text-white hover:border-[#0047BB] transition-all shadow-sm"
                           >
                             Assign Rider
@@ -302,49 +367,34 @@ setPending(
                </div>
             </div>
 
-            {/* Rider Selection List */}
-            <div className="flex-1 overflow-hidden flex flex-col">
-               <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-                  <input 
-                    type="text" 
-                    value={riderSearch}
-                    onChange={(e) => setRiderSearch(e.target.value)}
-                    placeholder="Search available riders..." 
-                    className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-600 transition-colors" 
-                  />
-               </div>
+            {assignError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3">
+                <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600 font-bold leading-tight">{assignError}</p>
+              </div>
+            )}
 
-               <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                  {visibleRiders.map((rider) => (
-                    <button
-                      key={rider.user_id}
-                      onClick={() => setSelectedRiderId(rider.user_id)}
-                      className={`w-full group flex items-center justify-between p-4 rounded-xl border transition-all ${
-                        selectedRiderId === rider.user_id 
-                        ? 'border-blue-600 bg-blue-50/50' 
-                        : 'border-slate-100 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-xs font-black text-slate-500 group-hover:bg-white transition-colors">
-                          {rider.full_name.split(' ').map(n => n[0]).join('')}
-                        </div>
-                        <div className="text-left">
-                          <p className="text-sm font-bold">{rider.full_name}</p>
-                          <div className="flex items-center gap-2">
-                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                             <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-tighter">Idle / Nearby</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Capacity</p>
-                         <p className="text-xs font-black">{rider.capacity_pct || '0'}%</p>
-                      </div>
-                    </button>
-                  ))}
-               </div>
+            {/* Rider Selection Dropdown */}
+            <div className="flex-1 flex flex-col">
+               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                 Select Rider
+               </label>
+               <select
+                 value={selectedRiderId ?? ''}
+                 onChange={(e) => setSelectedRiderId(e.target.value ? Number(e.target.value) : null)}
+                 className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-600 transition-colors text-sm font-bold"
+               >
+                 <option value="" disabled>Choose a rider…</option>
+                 {riders.map((rider) => (
+                   <option key={rider.user_id} value={rider.user_id}>
+                     {rider.full_name}{rider.vehicle_type ? ` — ${rider.vehicle_type}` : ''} ({rider.capacity_pct || 0}% capacity)
+                   </option>
+                 ))}
+               </select>
+
+               {riders.length === 0 && (
+                 <p className="text-xs text-slate-400 mt-3">No riders found. Register a rider account first.</p>
+               )}
             </div>
 
             {/* Action Footer */}

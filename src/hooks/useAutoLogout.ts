@@ -40,7 +40,12 @@ export function useAutoLogout(): void {
       idleTimer.current = setTimeout(() => forceLogout('idle'), IDLE_TIMEOUT_MS);
     }
 
-    ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, resetIdleTimer));
+    // `capture: true` is required for 'scroll': scroll events don't bubble,
+    // so a listener on `window` in the bubble phase never fires for the
+    // scrollable `overflow-y-auto` panels every dashboard uses — someone
+    // actively scrolling a request list would still get idle-logged-out.
+    // Capture-phase listeners see the event regardless of where it fires.
+    ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, resetIdleTimer, { capture: true, passive: true }));
     resetIdleTimer();
 
     const expiryInterval = setInterval(() => {
@@ -50,7 +55,7 @@ export function useAutoLogout(): void {
     return () => {
       if (idleTimer.current) clearTimeout(idleTimer.current);
       clearInterval(expiryInterval);
-      ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, resetIdleTimer));
+      ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, resetIdleTimer, { capture: true }));
     };
   }, [navigate]);
 }

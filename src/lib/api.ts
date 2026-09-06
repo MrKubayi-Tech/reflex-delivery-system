@@ -37,14 +37,23 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
 
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch {
+    // fetch() throws (not a rejected-with-status Response) when the
+    // network is down or the backend is unreachable. Wrap it so every
+    // caller can rely on catching ApiError alone instead of also
+    // handling a bare TypeError differently.
+    throw new ApiError(0, 'network_error', 'Could not reach the server. Check your connection and try again.');
+  }
 
   if (res.status === 401) {
     clearSession();
@@ -56,7 +65,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return undefined as T;
   }
 
-  const body = await res.json();
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    // The backend always sends JSON (see public/index.php's shutdown
+    // handler), but guard anyway so a malformed response becomes a
+    // readable error instead of an uncaught parse exception.
+    throw new ApiError(res.status, 'invalid_response', 'The server returned an unexpected response.');
+  }
 
   if (!res.ok) {
     const errBody = body as ApiErrorBody;
@@ -135,32 +152,37 @@ export async function fetchAvailableRiders(): Promise<Rider[]> {
 }
 
 /**
- * Subscribes to live delivery updates over SSE. Returns an unsubscribe
- * function; callers must invoke it on unmount to avoid leaking open
- * connections (see backend/src/Api/StreamController.php for the
- * poll-interval trade-off this is paired with).
+ * Polls GET /api/requests on an interval so the retailer and dispatcher
+ * dashboards stay roughly in sync with each other without a live push
+ * channel — the backend has no SSE/WebSocket endpoint (see
+ * DESIGN.md Section 6.2, "No live push updates"), and a previous version
+ * of this file pointed EventSource at /api/stream/requests, which
+ * doesn't exist and just failed and silently reconnected forever.
+ *
+ * Returns an unsubscribe function; callers must invoke it on unmount to
+ * stop the interval. `onError` fires when a poll fails (e.g. dropped
+ * connection) so the UI can show a "sync failed" indicator without
+ * throwing the failure away.
  */
-export function subscribeToRequests(
+export function pollRequests(
   onUpdate: (requests: DeliveryRequest[]) => void,
-  status?: DeliveryStatus
+  options: { status?: DeliveryStatus; intervalMs?: number; onError?: (err: unknown) => void } = {}
 ): () => void {
-  const token = getToken();
-  const qs = new URLSearchParams();
-  if (status) qs.set('status', status);
-  if (token) qs.set('access_token', token); // EventSource can't set headers
+  const { status, intervalMs = 15000, onError } = options;
+  let cancelled = false;
 
-  const source = new EventSource(`/api/stream/requests?${qs.toString()}`);
+  async function tick() {
+    try {
+      const data = await fetchRequests(status);
+      if (!cancelled) onUpdate(data);
+    } catch (err) {
+      if (!cancelled) onError?.(err);
+    }
+  }
 
-  source.addEventListener('requests.updated', (event) => {
-    const data = JSON.parse((event as MessageEvent).data) as DeliveryRequest[];
-    onUpdate(data);
-  });
-
-  source.onerror = () => {
-    // EventSource auto-reconnects on transient network errors; if the
-    // token itself is invalid the backend will keep 401ing on reconnect,
-    // which is an acceptable v1 trade-off (see TRADE_OFFS.md #3).
+  const interval = setInterval(tick, intervalMs);
+  return () => {
+    cancelled = true;
+    clearInterval(interval);
   };
-
-  return () => source.close();
 }
